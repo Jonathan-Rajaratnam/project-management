@@ -375,6 +375,23 @@ class Database:
         cursor.close()
         return result
 
+    def get_componenents(self, component_name, category_name=None):
+        cursor = self.connection.cursor(dictionary=True)
+        query = """
+            SELECT pc.name as name FROM pricing_components pc
+            JOIN pricing_categories cat ON pc.category_id = cat.id
+            WHERE cat.name = %s AND pc.active = TRUE;
+        """
+        params=[component_name]
+        if category_name:
+            query += " AND cat.name = %s"
+            params.append(category_name)
+
+        cursor.execute(query, params)
+        result = cursor.fetchall()
+        cursor.close()
+        return result
+
     def get_pricing_components(self, category_id=None, active_only=True):
         cursor = self.connection.cursor(dictionary=True)
         query = """
