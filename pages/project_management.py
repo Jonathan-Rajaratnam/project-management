@@ -62,8 +62,8 @@ def generate_pdf(quote_details):
     else:
         pdf.multi_cell(0, 10, 'No proposal available.', 0, 1)
 
-    pdf_bytes = pdf.output(dest='S').encode('latin-1')
-    return pdf_bytes
+    #pdf_bytes = pdf.output(dest='S').encode('latin-1')
+    return pdf
 
 def view_project_details():
     st.title("Project Management")
@@ -153,16 +153,17 @@ def view_project_details():
             with col1:
                 if st.button("Download PDF", key=f"pdf_{quote_id}"):
                     pdf = generate_pdf(quote)
-                    pdf_output = pdf.output(dest='S').encode('latin-1')
+                    pdf_bytes = pdf.output(dest='S').encode('latin-1')
                     st.download_button(
                         label="Click to Download",
-                        data=pdf_output,
+                        data=pdf_bytes,
                         file_name=f"quote_{quote['client_name']}_{quote['created_at'].strftime('%Y-%m-%d')}.pdf",
                         mime="application/pdf"
                     )
 
                 if st.button("Send to Client", key=f"send_{quote_id}"):
-                    pdf_bytes = generate_pdf(quote)
+                    pdf = generate_pdf(quote)
+                    pdf_bytes = pdf.output(dest='S').encode('latin-1')
                     send_email(
                         quote["client_email"],
                         f"Project Proposal for {quote['client_name']}",
@@ -178,8 +179,7 @@ def view_project_details():
                     index=["Pending", "Approved", "Rejected", "In Progress", "Completed"].index(quote.get("status", "Pending"))
                 )
                 if status != quote.get("status", "Pending"):
-                    # You'll need to add a method to update quote status in the database
-                    # db.update_quote_status(quote_id, status)
+                    db.update_quote_status(quote_id, status)
                     st.success(f"Status updated to {status}")
             with col3:
                 if st.button("Delete Quote", key=f"delete_{quote_id}"):

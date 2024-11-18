@@ -7,7 +7,7 @@ from db import Database
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from fpdf import FPDF
-from pages.project_management import generate_pdf
+from pages.Project_Management import generate_pdf
 import json
 from decimal import Decimal
 import io
@@ -21,21 +21,26 @@ if "team_selections" not in st.session_state:
 if "previous_selections" not in st.session_state:
     st.session_state.previous_selections = {}
 
+def apply_psychological_pricing(price):
+    #Apply psychological pricing strategy by converting to .99 format
+    if price >= 100:
+        # For prices >= 100, round to nearest whole number and subtract 0.01
+        return round(price) - 0.01
+    else:
+        # For prices < 100, round to nearest 0.99
+        return round(price - 0.01) + 0.99
 
-def update_rate(dev_selection, developers):
-    """Helper function to get developer's default rate"""
-    if dev_selection != "Select a developer":
-        dev_name = dev_selection.split(" | ")[0]
-        dev = next((m for m in developers if m["name"] == dev_name), None)
-        if dev:
-            return float(dev["default_rate"])
-    return 0.0
 
-def calculate_quote(team_selections, timeline_weeks, strategy_cost, tech_stack, complexity, db):
+def calculate_quote(team_selections, timeline_weeks, tech_stack, complexity, marketing_strategy, db,):
     base_cost = 0.0
+
+    # Calculate team cost using default rates
     for member in team_selections:
-        if member.get("rate", 0) > 0:
-            base_cost += float(member["rate"]) * float(timeline_weeks)
+        if member.get("name"):
+            # Get default rate from database
+            team_member = db.get_team_member_by_name(member["name"])
+            if team_member:
+                base_cost += float(team_member["default_rate"]) * float(timeline_weeks)
 
     # Add pricing for tech stack components
     for tech in tech_stack:
@@ -53,7 +58,17 @@ def calculate_quote(team_selections, timeline_weeks, strategy_cost, tech_stack, 
         profit_margin = 50.0
 
     total_cost_with_margin = base_cost * (1 + profit_margin / 100)
-    profit = total_cost_with_margin - base_cost - strategy_cost
+
+    # Apply marketing strategy pricing
+    if marketing_strategy == "Psychological Pricing":
+        total_cost_with_margin = apply_psychological_pricing(total_cost_with_margin)
+    else:
+        # Get pricing adjustment from database for other strategies
+        strategy_price = db.get_component_price(marketing_strategy, "Marketing Strategy")
+        if strategy_price:
+            total_cost_with_margin *= float(strategy_price["multiplier"])
+
+    profit = total_cost_with_margin - base_cost
 
     return base_cost, total_cost_with_margin, profit, profit_margin
 
@@ -120,8 +135,6 @@ def main():
         st.session_state.team_selections.append({
             "name": None,
             "role": None,
-            "hours": 0.0,
-            "rate": 0.0
         })
         st.rerun()
 
@@ -147,98 +160,73 @@ def main():
             timeline = st.number_input(
                 "Project Timeline (weeks)", min_value=1, value=4)
 
-        # Technology Stack
-        tech_options = [
-            "React", "Node.js", "Python", "Django",
-            "WordPress", "Vue.js", "Angular",
-        ]
+        # Get technology stack options from database
+        tech_options = [tech["name"] for tech in db.get_componenents("Technology Stack")]
         tech_stack = st.multiselect("Select Technology Stack", tech_options)
 
-        # # Add project margins
-        # margin_percentage = st.number_input(
-        #     "Project Margin (%)", min_value=0.0, value=0.0, step=0.1
-        # )
 
-        #Marketing Strategy
-        col1, col2 = st.columns(2)
-        with col1:
-            # Marketing strategy
-            pricing_strategies = [
-                "Psycological Pricing", "Market Skimming",
-                "Overhead Pricing", "Value-Based Pricing",
-            ]
-            selected_strategy = st.selectbox(
-                "Select Marketing Strategy", 
-                pricing_strategies
-            )
-        with col2:
-            strategy_cost = st.number_input(
-                "Marketing Strategy Cost ($)",
-                min_value=0.0,
-                value=0.0,
-                step=100.0
-            )
+        # Marketing Strategy
+        pricing_strategies = [pricing["name"] for pricing in db.get_componenents("Pricing Strategy")]
+        selected_strategy = st.selectbox(
+            "Select Marketing Strategy", 
+            pricing_strategies
+        )
 
         # Team Selection
         st.subheader("Team Allocation")
         
         # Get team members from database
-        developers = [m for m in db.get_team_members() if m["role_type"] == "Developer"]
-        designers = [m for m in db.get_team_members() if m["role_type"] == "Designer"]
-        
-        # Developer Selections
-        st.subheader("Developers")
+        team_members = db.get_team_members()  # Get all team members regardless of role
+
+        # Team Member Selections
+        st.subheader("Team Members")
         for i in range(len(st.session_state.team_selections)):
-            cols = st.columns([3, 2])
+            # Create options list with all team members
+            team_options = ["Select a team member"] + [
+                f"{m['name']} | {m['role']} | {m['role_type']} | ${m['default_rate']:.2f}" 
+                for m in team_members
+            ]
             
-            with cols[0]:
-                dev_options = ["Select a developer"] + [
-                    f"{m['name']} | {m['role']}" for m in developers
-                ]
-                dev_key = f"dev_selection_{i}"
-                dev_selection = st.selectbox(
-                    "Select Developer",
-                    dev_options,
-                    key=dev_key
-                )
-                
-                # Check if selection changed and update rate
-                prev_selection = st.session_state.previous_selections.get(dev_key)
-                if dev_selection != prev_selection:
-                    st.session_state.previous_selections[dev_key] = dev_selection
-                    if i < len(st.session_state.team_selections):
+            member_key = f"team_selection_{i}"
+            member_selection = st.selectbox(
+                "Select Team Member",
+                team_options,
+                key=member_key
+            )
+    
+            # Check if selection changed
+            prev_selection = st.session_state.previous_selections.get(member_key)
+            if member_selection != prev_selection:
+                st.session_state.previous_selections[member_key] = member_selection
+                if i < len(st.session_state.team_selections):
+                    if member_selection != "Select a team member":
+                        name, role, role_type = member_selection.split(" | ")
                         st.session_state.team_selections[i] = {
-                            "name": dev_selection.split(" | ")[0] if dev_selection != "Select a developer" else None,
-                            "role": dev_selection.split(" | ")[1] if dev_selection != "Select a developer" else None,
-                            "rate": update_rate(dev_selection, developers)
+                            "name": name,
+                            "role": role,
+                            "role_type": role_type
                         }
-        
-            
-            with cols[1]:
-                # Changed from hourly to weekly rate
-                current_rate = st.session_state.team_selections[i].get("rate", 0.0)
-                rate = st.number_input(
-                    "Weekly Rate ($)",  # Changed label
-                    min_value=0.0,
-                    value=current_rate,
-                    key=f"dev_rate_{i}"
-                )
-            
-            # Update session state
-            if dev_selection != "Select a developer":
-                st.session_state.team_selections[i] = {
-                    "name": dev_selection.split(" | ")[0],
-                    "role": dev_selection.split(" | ")[1],
-                    "rate": float(rate)
-                }
+                    else:
+                        st.session_state.team_selections[i] = {
+                            "name": None,
+                            "role": None,
+                            "role_type": None
+                        }
 
 
-            # Calculate base cost and total cost with margin
-            base_cost, total_cost_with_margin, profit, profit_margin_percentage = calculate_quote(st.session_state.team_selections, timeline, strategy_cost, tech_stack, complexity, db)
+        # Calculate base cost and total cost with margin
+        base_cost, total_cost_with_margin, profit, profit_margin_percentage = calculate_quote(
+            st.session_state.team_selections, 
+            timeline, 
+            tech_stack, 
+            complexity, 
+            selected_strategy,
+            db)
 
-            st.write(f"Base Development Cost: ${base_cost:,.2f}")
-            st.write(f"Marketing Strategy Cost: ${strategy_cost:,.2f}")
-            st.write(f"Total Cost (with margin): ${total_cost_with_margin:,.2f}")
+
+        st.write(f"Base Development Cost: ${base_cost:,.2f}")
+        st.write(f"Total Cost (with margin): ${total_cost_with_margin:,.2f}")
+        st.write(f"Profit: ${profit:,.2f}")
 
         # Form submit button
         submitted = st.form_submit_button("Generate Quote")
