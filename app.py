@@ -53,10 +53,11 @@ def calculate_quote(team_selections, timeline_weeks, tech_stack, complexity, mar
 
     # Get the profit margin from the previous month
     last_month = (datetime.now() - timedelta(days=30)).strftime("%B %Y")
-    profit_margin = float(db.get_previous_month_revenue(last_month))
+    previous_revenue = db.get_previous_month_revenue(last_month)
+    profit_margin = 50.0
+
     if profit_margin is None:
         profit_margin = 50.0
-
     total_cost_with_margin = base_cost * (1 + profit_margin / 100)
 
     # Apply marketing strategy pricing
@@ -200,12 +201,13 @@ def main():
                 st.session_state.previous_selections[member_key] = member_selection
                 if i < len(st.session_state.team_selections):
                     if member_selection != "Select a team member":
-                        name, role, role_type = member_selection.split(" | ")
+                        # Split and take only the first three parts (name, role, role_type)
+                        parts = member_selection.split(" | ")
                         st.session_state.team_selections[i] = {
-                            "name": name,
-                            "role": role,
-                            "role_type": role_type
-                        }
+                            "name": parts[0],
+                            "role": parts[1],
+                            "role_type": parts[2]
+                    }
                     else:
                         st.session_state.team_selections[i] = {
                             "name": None,
@@ -235,6 +237,19 @@ def main():
                 st.error("Please add at least one team member.")
                 return
 
+            # Prepare team selections with rates from database
+            team_selections_with_rates = []
+            for member in st.session_state.team_selections:
+                if member["name"] is not None:
+                    team_member_data = db.get_team_member_by_name(member["name"])
+                    if team_member_data:
+                        team_selections_with_rates.append({
+                            "name": member["name"],
+                            "role": member["role"],
+                            "role_type": member["role_type"],
+                            "default_rate": float(team_member_data["default_rate"])
+                        })
+
             project_details = {
                 "client_name": client_name,
                 "client_email": client_email,
@@ -244,8 +259,8 @@ def main():
                 "timeline": timeline,
                 "margin_percentage": profit_margin_percentage,
                 "marketing_strategy": selected_strategy,
-                "marketing_cost": strategy_cost,
-                "team_selections": st.session_state.team_selections,
+                "marketing_cost": 0.00,
+                "team_selections": team_selections_with_rates,  # Use the enriched team data
                 "total_cost": total_cost_with_margin,
                 "base_cost": base_cost,
                 "profit": profit,
@@ -264,11 +279,10 @@ def main():
             breakdown_data = [
                 {
                     "Team Member": member["name"],
-                    "Weekly Rate ($)": member["rate"],
-                    "Total Cost": member["rate"] * timeline,
+                    "Weekly Rate ($)": member["default_rate"],
+                    "Total Cost": float(member["default_rate"]) * timeline,
                 }
-                for member in st.session_state.team_selections
-                if member["name"] is not None
+                for member in team_selections_with_rates  # Use the enriched team data
             ]
             if breakdown_data:
                 st.table(pd.DataFrame(breakdown_data))
@@ -288,21 +302,25 @@ def main():
 
     # Additional actions such as Save PDF and Send to Client
     if st.button("Save as PDF"):
-        if not st.session_state.quotes:
+        saved_quotes = db.get_all_quotes()
+        if not saved_quotes:
             st.error("No quote to save! Please generate a quote first.")
         else:
-            latest_quote = db.get_all_quotes()[0]
+            latest_quote = saved_quotes[0]
             pdf = generate_pdf(latest_quote)
             pdf_output = pdf.output(dest='S').encode('latin-1')
             st.download_button(
                 label="Download PDF",
                 data=pdf_output,
-                file_name=f"proposal_{latest_quote['client_name']}_{latest_quote['date']}.pdf",
+                file_name=f"proposal_{latest_quote['client_name']}_{latest_quote['created_at'].strftime('%Y-%m-%d')}.pdf",
                 mime="application/pdf"
             )
 
     if st.button("Send to Client"):
-        st.info(f"Proposal would be sent to {client_email}")
+        if client_email:
+            st.info(f"Proposal would be sent to {client_email}")
+        else:
+            st.error("Please enter a client email address.")
 
     # Sidebar with saved quotes
     with st.sidebar:

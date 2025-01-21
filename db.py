@@ -231,7 +231,7 @@ class Database:
                         quote_id,
                         member['name'],
                         member['role'],
-                        member['rate']
+                        member['default_rate']
                     ))
             
             self.connection.commit()
@@ -535,117 +535,27 @@ class Database:
         cursor.close()
         return [{"month": row[0], "revenue": row[1], "profit_margin_percentage": row[2]} for row in results]
 
-
-#The code after this is purely for the handling of the financial predictions and monthly financials analyis
-    def add_monthly_financial(self, month, revenue, expenses, overhead_costs, notes=None):
-        #"""Add monthly financial data"""
-        cursor = self.connection.cursor()
-        sql = """
-        INSERT INTO monthly_financials (month, revenue, expenses, overhead_costs, notes)
-        VALUES (%s, %s, %s, %s, %s)
+    def get_team_member_by_name(self, name):
         """
-        cursor.execute(sql, (month, revenue, expenses, overhead_costs, notes))
-        self.connection.commit()
-        cursor.close()
-
-    def get_monthly_financials(self, start_date=None, end_date=None):
-        """Get monthly financial data within date range"""
-        cursor = self.connection.cursor(dictionary=True)
-        sql = "SELECT * FROM monthly_financials WHERE 1=1"
-        params = []
+        Retrieve a team member by their name
         
-        if start_date:
-            sql += " AND month >= %s"
-            params.append(start_date)
-        if end_date:
-            sql += " AND month <= %s"
-            params.append(end_date)
-            
-        sql += " ORDER BY month DESC"
-        cursor.execute(sql, params)
-        result = cursor.fetchall()
-        cursor.close()
-        return result
-
-    def get_financial_forecast(self, target_month):
+        Parameters:
+        name (str): The name of the team member to retrieve
+        
+        Returns:
+        dict: Team member information if found, None otherwise
         """
-        Calculate financial forecast for target month based on:
-        1. Previous month's financials
-        2. Confirmed projects (Approved status) for target month
-        3. Potential projects (Pending status) for target month
-        4. Fixed costs
-        """
-        cursor = self.connection.cursor(dictionary=True)
-        
-        # Get previous month's financials
-        prev_month = (target_month.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
-        cursor.execute("""
-            SELECT * FROM monthly_financials 
-            WHERE month = %s
-        """, (prev_month,))
-        prev_financials = cursor.fetchone() or {
-            'revenue': 0,
-            'expenses': 0,
-            'overhead_costs': 0,
-            'profit_loss': 0
-        }
-        
-        # Get confirmed projects revenue for target month
-        cursor.execute("""
-            SELECT SUM(total_cost) as confirmed_revenue 
-            FROM quotes 
-            WHERE status = 'Approved' 
-            AND MONTH(created_at) = %s 
-            AND YEAR(created_at) = %s
-        """, (target_month.month, target_month.year))
-        confirmed_revenue = cursor.fetchone()['confirmed_revenue'] or 0
-        
-        # Get potential projects
-        cursor.execute("""
-            SELECT SUM(total_cost) as potential_revenue 
-            FROM quotes 
-            WHERE status = 'Pending' 
-            AND MONTH(created_at) = %s 
-            AND YEAR(created_at) = %s
-        """, (target_month.month, target_month.year))
-        potential_revenue = cursor.fetchone()['potential_revenue'] or 0
-        
-        # Get fixed costs
-        cursor.execute("""
-            SELECT SUM(amount) as fixed_costs 
-            FROM fixed_costs 
-            WHERE active = TRUE 
-            AND frequency = 'Monthly'
-        """)
-        monthly_fixed_costs = cursor.fetchone()['fixed_costs'] or 0
-        
-        cursor.close()
-        
-        # Calculate forecasts
-        conservative_forecast = {
-            'revenue': confirmed_revenue,
-            'expenses': prev_financials['expenses'],
-            'overhead_costs': monthly_fixed_costs,
-            'profit_loss': confirmed_revenue - prev_financials['expenses'] - monthly_fixed_costs
-        }
-        
-        optimistic_forecast = {
-            'revenue': float(confirmed_revenue) + (float(potential_revenue) * 0.7),  # Assuming 70% conversion
-            'expenses': prev_financials['expenses'],
-            'overhead_costs': monthly_fixed_costs,
-            'profit_loss': (confirmed_revenue + (float(potential_revenue) * 0.7)) - prev_financials['expenses'] - monthly_fixed_costs
-        }
-        
-        breakeven_analysis = {
-            'current_revenue': confirmed_revenue,
-            'needed_revenue': prev_financials['expenses'] + monthly_fixed_costs,
-            'revenue_gap': (prev_financials['expenses'] + monthly_fixed_costs) - confirmed_revenue,
-            'potential_projects_value': potential_revenue
-        }
-        
-        return {
-            'conservative': conservative_forecast,
-            'optimistic': optimistic_forecast,
-            'breakeven': breakeven_analysis,
-            'previous_month': prev_financials
-        }
+        try:
+            cursor = self.connection.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT * FROM team_members 
+                WHERE name = %s AND active = TRUE
+                LIMIT 1
+            """, (name,))
+            result = cursor.fetchone()
+            return result
+        except Error as e:
+            print(f"Error retrieving team member: {e}")
+            return None
+        finally:
+            cursor.close()
