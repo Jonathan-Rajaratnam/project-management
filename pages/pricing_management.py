@@ -81,7 +81,7 @@ def manage_pricing():
         with st.form("add_component"):
             name = st.text_input("Component Name")
             base_price = st.number_input("Base Price", min_value=0.0, step=100.0)
-            multiplier = st.number_input("Multiplier", min_value=1.0, step=0.1)
+            multiplier = st.number_input("Multiplier", min_value=0.1, step=0.1)
             description = st.text_area("Description")
             
             if st.form_submit_button("Add Component"):

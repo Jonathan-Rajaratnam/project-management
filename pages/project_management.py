@@ -17,10 +17,19 @@ def send_email(recipient_email, subject, body, quote, pdf_bytes=None):
     msg['From'] = st.secrets["gmail_user"]
     msg['To'] = recipient_email
 
-    # Add the email body
-    msg.attach(MIMEText(body, 'plain'))
+    # Simple email body
+    email_body = f"""
+Dear {quote['client_name']},
 
-    # Add the attachment (if provided)
+Thank you for your interest in our services. Please find attached our detailed proposal for your project.
+
+Best regards,
+Your Company Name
+    """
+
+    msg.attach(MIMEText(email_body, 'plain'))
+
+    # Add the PDF attachment
     if pdf_bytes:
         part = MIMEApplication(pdf_bytes, Name=f"quote_{quote['client_name']}_{quote['created_at'].strftime('%Y-%m-%d')}.pdf")
         part['Content-Disposition'] = f'attachment; filename="quote_{quote["client_name"]}_{quote["created_at"].strftime("%Y-%m-%d")}.pdf"'
