@@ -8,6 +8,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from fpdf import FPDF
 from pages.Project_Management import generate_pdf
+from pages.Project_Management import send_email
+from theme_manager import add_theme_selector
 import json
 from decimal import Decimal
 import io
@@ -117,11 +119,86 @@ def generate_proposal(project_details):
 
     return response.choices[0].message.content
 
+def display_saved_quotes():
+    if 'saved_quotes' not in st.session_state:
+        st.session_state.saved_quotes = db.get_all_quotes()
+
+    st.header("Saved Quotes")
+    for quote in st.session_state.saved_quotes:
+        with st.expander(f"Quote #{quote['id']}: {quote['client_name']}"):
+            st.write(f"Date: {quote['created_at'].strftime('%Y-%m-%d')}")
+            st.write(f"Amount: ${float(quote['total_cost']):,.2f}")
+            st.write(f"Timeline: {quote['timeline']} weeks")
+            if st.button("Delete Quote", key=f"delete_quote_{quote['id']}"):
+                if db.delete_quote(quote['id']):
+                    st.success("Quote deleted!")
+                    st.session_state.saved_quotes = [q for q in st.session_state.saved_quotes if q['id'] != quote['id']]
+                    st.rerun()
+                else:
+                    st.error("Failed to delete quote!")
+
+def create_sidebar():
+    with st.sidebar:
+        menu = st.radio(
+            "Menu",
+            ["Dashboard", "Settings", "Quotes"],
+        )
+        
+        if menu == "Settings":
+            st.write("## App Settings")
+            add_theme_selector()
+        elif menu == "Quotes":
+            display_saved_quotes()
+
 def main():
-    st.title("Website Quote Generator")
+    st.set_page_config(
+        page_title="Website Quote Generator",
+        page_icon="💰",
+        layout="wide",
+    )
 
     # Initialize database
+    global db
     db = Database()
+
+    create_sidebar()
+
+    # with st.sidebar:
+    #     with st.container():
+    #         st.write("# Settings")
+    #         add_theme_selector()
+        
+    #     # Add a separator
+    #     st.markdown("---")
+
+    # with st.sidebar:
+    #     menu = st.radio(
+    #         "Menu",
+    #         ["Dashboard", "Settings", "Quotes"],
+    #     )
+        
+    #     if menu == "Settings":
+    #         st.write("## App Settings")
+    #         add_theme_selector()
+    #     elif menu == "Quotes":
+    #         # Sidebar with saved quotes
+    #         with st.sidebar:
+    #             st.header("Saved Quotes")
+    #             saved_quotes = db.get_all_quotes()
+    #             for quote in saved_quotes:
+    #                 with st.expander(f"Quote #{quote['id']}: {quote['client_name']}"):
+    #                     st.write(f"Date: {quote['created_at'].strftime('%Y-%m-%d')}")
+    #                     st.write(f"Amount: ${float(quote['total_cost']):,.2f}")
+    #                     st.write(f"Timeline: {quote['timeline']} weeks")
+    #                     if st.button("Delete Quote", key=f"delete_quote_{quote['id']}"):
+    #                         if db.delete_quote(quote['id']):
+    #                             st.success("Quote deleted!")
+    #                             st.rerun()
+    #                         else:
+    #                             st.error("Failed to delete quote!")
+
+
+    st.title("Website Quote Generator")
 
     # # Navigation
     # st.sidebar.title("Navigation")
@@ -318,25 +395,22 @@ def main():
 
     if st.button("Send to Client"):
         if client_email:
-            st.info(f"Proposal would be sent to {client_email}")
+            saved_quotes = db.get_all_quotes()
+            if saved_quotes:
+                latest_quote = saved_quotes[0]
+                pdf = generate_pdf(latest_quote)
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                send_email(
+                    client_email,
+                    f"Project Proposal for {latest_quote['client_name']}",
+                    latest_quote['proposal'],
+                    latest_quote,
+                    pdf_bytes
+                )
         else:
             st.error("Please enter a client email address.")
 
-    # Sidebar with saved quotes
-    with st.sidebar:
-        st.header("Saved Quotes")
-        saved_quotes = db.get_all_quotes()
-        for quote in saved_quotes:
-            with st.expander(f"Quote #{quote['id']}: {quote['client_name']}"):
-                st.write(f"Date: {quote['created_at'].strftime('%Y-%m-%d')}")
-                st.write(f"Amount: ${float(quote['total_cost']):,.2f}")
-                st.write(f"Timeline: {quote['timeline']} weeks")
-                if st.button("Delete Quote", key=f"delete_quote_{quote['id']}"):
-                    if db.delete_quote(quote['id']):
-                        st.success("Quote deleted!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to delete quote!")
+    
 
 if __name__ == "__main__":
     main()
