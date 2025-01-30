@@ -8,6 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from fpdf import FPDF
 from pages.Project_Management import generate_pdf
+from pages.Project_Management import send_email
 import json
 from decimal import Decimal
 import io
@@ -318,9 +319,21 @@ def main():
 
     if st.button("Send to Client"):
         if client_email:
-            st.info(f"Proposal would be sent to {client_email}")
+            saved_quotes = db.get_all_quotes()
+            if saved_quotes:
+                latest_quote = saved_quotes[0]
+                pdf = generate_pdf(latest_quote)
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                send_email(
+                    client_email,
+                    f"Project Proposal for {latest_quote['client_name']}",
+                    latest_quote['proposal'],
+                    latest_quote,
+                    pdf_bytes
+                )
         else:
             st.error("Please enter a client email address.")
+
 
     # Sidebar with saved quotes
     with st.sidebar:
