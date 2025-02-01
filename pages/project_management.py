@@ -24,7 +24,6 @@ Dear {quote['client_name']},
 Thank you for your interest in our services. Please find attached our detailed proposal for your project.
 
 Best regards,
-Your Company Name
     """
 
     msg.attach(MIMEText(email_body, 'plain'))

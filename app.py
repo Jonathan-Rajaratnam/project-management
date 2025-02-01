@@ -1,22 +1,22 @@
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from datetime import timedelta
-import openai
-from db import Database
+import io
+import json
+from datetime import datetime, timedelta
+from decimal import Decimal
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import openai
+import pandas as pd
+import streamlit as st
+
+from auth import Auth, initialize_auth
+from db import Database
 from fpdf import FPDF
-from pages.Project_Management import generate_pdf
-from pages.Project_Management import send_email
-import json
-from decimal import Decimal
-import io
+from pages.Project_Management import generate_pdf, send_email
 
 
-# Initialize session state
-# if "quotes" not in st.session_state:
-#     st.session_state.quotes = []
+
+# Initialize session state so it 
 if "team_selections" not in st.session_state:
     st.session_state.team_selections = []
 if "previous_selections" not in st.session_state:
@@ -32,48 +32,148 @@ def apply_psychological_pricing(price):
         return round(price - 0.01) + 0.99
 
 
-def calculate_quote(team_selections, timeline_weeks, tech_stack, complexity, marketing_strategy, db,):
-    base_cost = 0.0
+# def calculate_quote(team_selections, timeline_weeks, tech_stack, complexity, marketing_strategy, db,):
+#     base_cost = 0.0
 
-    # Calculate team cost using default rates
+#     # Calculate team cost using default rates
+#     for member in team_selections:
+#         if member.get("name"):
+#             # Get default rate from database
+#             team_member = db.get_team_member_by_name(member["name"])
+#             if team_member:
+#                 base_cost += float(team_member["default_rate"]) * float(timeline_weeks)
+
+#     # Add pricing for tech stack components
+#     for tech in tech_stack:
+#         tech_price = db.get_component_price(tech, "Technology Stack")
+#         base_cost += float(tech_price["base_price"]) * float(tech_price["multiplier"])
+
+#     # Add pricing for complexity
+#     complexity_price = db.get_component_price(complexity, "Complexity")
+#     base_cost += float(complexity_price["base_price"]) * float(complexity_price["multiplier"])
+
+#     # Get the profit margin from the previous month
+#     last_month = (datetime.now() - timedelta(days=30)).strftime("%B %Y")
+#     previous_revenue = db.get_previous_month_revenue(last_month)
+#     profit_margin = float(previous_revenue) if previous_revenue else 50.0
+
+#     total_cost_with_margin = base_cost * (1 + profit_margin / 100)
+
+#     # Apply marketing strategy pricing
+#     if marketing_strategy == "Psychological Pricing":
+#         total_cost_with_margin = apply_psychological_pricing(total_cost_with_margin)
+#     else:
+#         # Get pricing adjustment from database for other strategies
+#         strategy_price = db.get_component_price(marketing_strategy, "Pricing Strategy")
+#         if strategy_price:
+#             total_cost_with_margin *= float(strategy_price["multiplier"])
+
+#     profit = total_cost_with_margin - base_cost
+
+#     return base_cost, total_cost_with_margin, profit, profit_margin
+
+def calculate_quote(team_selections, timeline_weeks, tech_stack, complexity, marketing_strategy, db):
+    base_cost = 0.0
+    
+    print("\n=== DETAILED COST CALCULATION LOG ===")
+    print(f"\nTimeline: {timeline_weeks} weeks")
+    print(f"Complexity: {complexity}")
+    print(f"Marketing Strategy: {marketing_strategy}")
+    
+    # Get current month for reference
+    current_month = datetime.now().strftime("%B %Y")
+    print(f"\nCalculation Month: {current_month}")
+    
+    # Calculate team cost
+    print("\n1. TEAM COSTS:")
+    team_total = 0
     for member in team_selections:
         if member.get("name"):
-            # Get default rate from database
             team_member = db.get_team_member_by_name(member["name"])
             if team_member:
-                base_cost += float(team_member["default_rate"]) * float(timeline_weeks)
-
-    # Add pricing for tech stack components
+                member_cost = float(team_member["default_rate"]) * float(timeline_weeks)
+                team_total += member_cost
+                print(f"   - {member['name']} ({member['role']}):")
+                print(f"     Rate: ${float(team_member['default_rate'])}/week")
+                print(f"     Timeline: {timeline_weeks} weeks")
+                print(f"     Total: ${member_cost:,.2f}")
+    
+    base_cost += team_total
+    print(f"\nTotal Team Cost: ${team_total:,.2f}")
+    
+    # Technology stack costs
+    print("\n2. TECHNOLOGY STACK COSTS:")
+    tech_total = 0
     for tech in tech_stack:
         tech_price = db.get_component_price(tech, "Technology Stack")
-        base_cost += float(tech_price["base_price"]) * float(tech_price["multiplier"])
-
-    # Add pricing for complexity
+        tech_cost = float(tech_price["base_price"]) * float(tech_price["multiplier"])
+        tech_total += tech_cost
+        print(f"   - {tech}:")
+        print(f"     Base Price: ${float(tech_price['base_price']):,.2f}")
+        print(f"     Multiplier: {float(tech_price['multiplier'])}")
+        print(f"     Total: ${tech_cost:,.2f}")
+    
+    base_cost += tech_total
+    print(f"\nTotal Tech Stack Cost: ${tech_total:,.2f}")
+    
+    # Complexity costs
+    print("\n3. COMPLEXITY COSTS:")
     complexity_price = db.get_component_price(complexity, "Complexity")
-    base_cost += float(complexity_price["base_price"]) * float(complexity_price["multiplier"])
-
-    # Get the profit margin from the previous month
+    complexity_cost = float(complexity_price["base_price"]) * float(complexity_price["multiplier"])
+    base_cost += complexity_cost
+    print(f"   - {complexity}:")
+    print(f"     Base Price: ${float(complexity_price['base_price']):,.2f}")
+    print(f"     Multiplier: {float(complexity_price['multiplier'])}")
+    print(f"     Total: ${complexity_cost:,.2f}")
+    
+    # Get the profit margin
     last_month = (datetime.now() - timedelta(days=30)).strftime("%B %Y")
     previous_revenue = db.get_previous_month_revenue(last_month)
-    profit_margin = 50.0
-
-    if profit_margin is None:
-        profit_margin = 50.0
+    print("Previous Month Revenue:", previous_revenue);
+    profit_margin = float(previous_revenue) if previous_revenue else 50.0  # Default margin
+    
+    print(f"\n4. PROFIT CALCULATION:")
+    print(f"   Previous Month: {last_month}")
+    print(f"   Previous Month Revenue: ${previous_revenue if previous_revenue else 'No data'}")
+    print(f"   Applied Profit Margin: {profit_margin}%")
+    
+    # Calculate total with margin
     total_cost_with_margin = base_cost * (1 + profit_margin / 100)
-
-    # Apply marketing strategy pricing
+    
+    print("\n5. MARKETING STRATEGY ADJUSTMENT:")
     if marketing_strategy == "Psychological Pricing":
+        original_price = total_cost_with_margin
         total_cost_with_margin = apply_psychological_pricing(total_cost_with_margin)
+        print(f"   - Psychological Pricing Applied:")
+        print(f"     Original: ${original_price:,.2f}")
+        print(f"     Adjusted: ${total_cost_with_margin:,.2f}")
     else:
-        # Get pricing adjustment from database for other strategies
-        strategy_price = db.get_component_price(marketing_strategy, "Marketing Strategy")
-        if strategy_price:
-            total_cost_with_margin *= float(strategy_price["multiplier"])
-
+        strategy_price = db.get_component_price(marketing_strategy, "Pricing Strategy")
+        print(f"   Retrieved strategy price data: {strategy_price}")  # Debug print
+        
+        if strategy_price and 'multiplier' in strategy_price:
+            original_price = total_cost_with_margin
+            multiplier = float(strategy_price['multiplier'])
+            total_cost_with_margin *= multiplier
+            print(f"   - {marketing_strategy}:")
+            print(f"     Original: ${original_price:,.2f}")
+            print(f"     Multiplier: {multiplier}")
+            print(f"     Adjusted: ${total_cost_with_margin:,.2f}")
+        else:
+            print(f"   Warning: Could not find valid multiplier for {marketing_strategy}")
+    
+    # Calculate final profit
     profit = total_cost_with_margin - base_cost
-
+    
+    print("\n=== FINAL COST BREAKDOWN ===")
+    print(f"Base Development Cost: ${base_cost:,.2f}")
+    print(f"Profit Margin: {profit_margin}%")
+    print(f"Profit Amount: ${profit:,.2f}")
+    print(f"Total Cost (with margin): ${total_cost_with_margin:,.2f}")
+    print(f"Weekly Revenue Rate: ${total_cost_with_margin/float(timeline_weeks):,.2f}/week")
+    print("==============================\n")
+    
     return base_cost, total_cost_with_margin, profit, profit_margin
-
 
 def generate_proposal(project_details):
     #"""Generate project proposal using OpenAI"""
@@ -103,7 +203,15 @@ def generate_proposal(project_details):
     3. Technical Approach
     4. Timeline
     5. Team Composition
-    6. Cost Breakdown"""
+    6. Cost Breakdown
+    
+    Don't include thing such as:
+    Sincerely,
+    [Your Name]
+    [Web Development Agency]
+    """
+
+    
 
     response = openai.chat.completions.create(
         model="gpt-3.5-turbo",
@@ -119,18 +227,25 @@ def generate_proposal(project_details):
     return response.choices[0].message.content
 
 def main():
+
+    st.set_page_config(
+        page_title="Website Quote Generator",
+        page_icon="💰",
+        layout="wide",
+    )
+
+    if 'db' not in st.session_state:
+        st.session_state.db = Database()
+
+    # Check if user is logged in
+    if not initialize_auth():
+        return
+
+
     st.title("Website Quote Generator")
 
     # Initialize database
     db = Database()
-
-    # # Navigation
-    # st.sidebar.title("Navigation")
-    # page = st.sidebar.radio("Go to", ["Quote Generator", "Project Management"])
-    
-    # if page == "Project Management":
-    #     view_project_details()
-    #     return
 
     # Add team member button (outside form)
     if st.button("Add Team Member"):
@@ -327,7 +442,7 @@ def main():
                 send_email(
                     client_email,
                     f"Project Proposal for {latest_quote['client_name']}",
-                    latest_quote['proposal'],
+                    latest_quote.get('proposal', ''),
                     latest_quote,
                     pdf_bytes
                 )
@@ -350,6 +465,14 @@ def main():
                         st.rerun()
                     else:
                         st.error("Failed to delete quote!")
+
+
+
+    # Logout button
+    with st.sidebar:
+        if st.button("Logout"):
+            st.session_state.authenticated = False
+            st.rerun()
 
 if __name__ == "__main__":
     main()
